@@ -4,6 +4,8 @@ import torch.optim as optim
 import numpy as np
 from torch.utils.data import TensorDataset 
 from torch.utils.data import DataLoader 
+
+import matplotlib.pyplot as plt
 import csv
 
 class simpleMLP:
@@ -87,7 +89,7 @@ def split_train_and_test(preprocessed_data, percentage):
 
 
 # gpu device
-device = torch.device("cuda")
+#device = torch.device("cuda")
 
 
 # features
@@ -95,13 +97,13 @@ input_size = 2
 output_size = 1
 
 # hyper parameters
-window_size = 20
-output_length = 2
+window_size = 30
+output_length = 10
 hidden_size = 3
 learning_rate = 0.001  
-train_size = 0.9
-batch_size = 10
-epoch = 10
+train_size = 0.99
+batch_size = 1000
+epoch = 20
 
 # load data
 raw_data = []
@@ -128,7 +130,7 @@ dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 # model set
 myrnn = myRNN(input_size, hidden_size, output_size, output_length)
 optimizer = optim.Adam(myrnn.parameters(), learning_rate)
-cost_function = nn.CrossEntropyLoss()
+cost_function = nn.MSELoss()
  
  
 # train data
@@ -138,15 +140,28 @@ for epoch in range(epoch):
         X, Y = minibatch
         prediction = myrnn.forward(X)
         cost = cost_function(prediction, Y)
-        if index % 1000 == 0:
-            print("=======================================")
-            print(prediction)
-            print(Y)
+        if index % 10 == 0:
             print(cost)
         optimizer.zero_grad()
         cost.backward()
         optimizer.step()
 
 # test data
-print(y_train[0:1, ...])
-print(myrnn.forward(x_train[0:1, ...]))
+x_test, y_test = test_data
+dataset = TensorDataset(x_test, y_test)
+dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+
+predict_after10min = []
+real_after10min = []
+for index, minibatch in enumerate(dataloader):
+    X, Y = minibatch
+    prediction = myrnn.forward(X)
+
+    predict_after10min.append(prediction.squeeze(-1).squeeze(0).detach().numpy()[-1])
+    real_after10min.append(Y.squeeze(-1).squeeze(0).numpy()[-1])
+
+print(predict_after10min)
+print(real_after10min)
+plt.plot(predict_after10min, label="predict")
+plt.plot(real_after10min, label="real")
+plt.show()
