@@ -1,64 +1,25 @@
-import torch 
+import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import csv 
 from torch.utils.data import TensorDataset 
 from torch.utils.data import DataLoader 
-
 import matplotlib.pyplot as plt
-import csv
 
-class simpleMLP:
-    def __init__(self, input_size, output_size):
-        self.W = torch.FloatTensor(np.random.rand(input_size, output_size))
-        self.b = torch.FloatTensor(np.random.rand(output_size))
-        self.W.requires_grad_(True)
-        self.b.requires_grad_(True)
+class Rnn(torch.nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, output_length):
+        super().__init__()
+        self.output_length = output_length
+        self.rnn = nn.RNN(input_size, hidden_size, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size, bias=True)
         
     def forward(self, x):
-        return x.matmul(self.W)+self.b    
+        x, _status = self.rnn(x)
+        x = x[...,-self.output_length:,:]
+        x = self.fc(x)
+        return x
     
-    def parameters(self):
-        return [self.W, self.b]
-    
-class simpleRNN:
-    def __init__(self, input_size, hidden_size):
-        self.cell = simpleMLP(input_size, hidden_size)
-        self.Wh = torch.FloatTensor(np.random.rand(hidden_size, hidden_size))
-        self.bh = torch.FloatTensor(np.random.rand(hidden_size))
-        self.status = None
-        self.output = None
-        self.tanh = nn.Tanh()
-    
-    def forward(self, x):
-        for t in range(x.shape[-2]):
-            if t==0:
-                self.status = self.cell.forward(x[..., t:t+1, :])
-                self.status = self.tanh(self.status)
-                self.output = self.status
-            else:
-                self.status = self.cell.forward(x[..., t:t+1, :]) + self.status.matmul(self.Wh)+self.bh
-                self.status = self.tanh(self.status)
-                self.output = torch.cat([self.output, self.status], dim=-2)
-        return self.output
-    
-    def parameters(self):
-        return [*self.cell.parameters(), self.Wh, self.bh]
-    
-class myRNN:
-    def __init__(self, input_size, hidden_size, output_size, output_length):
-        self.output_length = output_length
-        self.rnn = simpleRNN(input_size, hidden_size)
-        self.mlp = simpleMLP(hidden_size, output_size)
-    
-    def forward(self, x):
-        rnn_output = self.rnn.forward(x)
-        rnn_output = rnn_output[..., -self.output_length:, :]
-        return self.mlp.forward(rnn_output)
-    
-    def parameters(self):
-        return [*self.rnn.parameters(), *self.mlp.parameters()]
-
 def preprocessing(raw_data, window_size, output_size):
     x_rain = [float(rain) if rain!='-' else -1.0 for time, level, rain, acc in raw_data]
     y_level = [float(level) if level!='-' else -1.0 for time, level, rain, acc in raw_data]
@@ -84,10 +45,6 @@ def split_train_and_test(preprocessed_data, percentage):
     return (x_train, y_train), (x_test, y_test)
 
 
-# gpu device
-#device = torch.device("cuda")
-
-
 # features
 input_size = 2
 output_size = 1
@@ -96,10 +53,10 @@ output_size = 1
 window_size = 30
 output_length = 10
 hidden_size = 3
-learning_rate = 0.1  
+learning_rate = 0.01  
 train_size = 0.99
-batch_size = 90000
-epoch = 400
+batch_size = 80000
+epoch = 200
 
 # load data
 raw_data = []
@@ -123,12 +80,11 @@ dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
 # model set
-myrnn = myRNN(input_size, hidden_size, output_size, output_length)
-optimizer = optim.Adam(myrnn.parameters(), learning_rate)
-cost_function = nn.MSELoss()
+rnn = Rnn(input_size, hidden_size, output_size, output_length)
+optimizer = optim.Adam(rnn.parameters(), learning_rate)
+cost_function = torch.nn.MSELoss()
 
-    
-# train data
+
 for epoch in range(epoch):
     for index, minibatch in enumerate(dataloader):
         #droplast
@@ -136,15 +92,16 @@ for epoch in range(epoch):
             break
         
         X, Y = minibatch
-        prediction = myrnn.forward(X)
-        cost = cost_function(prediction, Y)
-    
+        prediction = rnn(x_train)
+        cost = cost_function(prediction, y_train)
+        
         optimizer.zero_grad()
         cost.backward()
         optimizer.step()
-        print(cost)
-
-# prediction = myrnn.forward(x_train[2197:2198, ...][0])
+        
+        # print(epoch, cost)
+    
+# prediction = rnn(x_train[2197:2198, ...][0])
 # print(prediction)
 # print(y_train[2197])
 
@@ -157,11 +114,8 @@ predict_after10min = []
 real_after10min = []
 for index, minibatch in enumerate(dataloader):
     X, Y = minibatch
-    prediction = myrnn.forward(X)
+    prediction = rnn(X)
     predict_after10min.append(prediction.squeeze(-1).squeeze(0).detach().numpy()[-1])
-    if index % 100 == 0:
-        print(X)
-        print(prediction)
     real_after10min.append(Y.squeeze(-1).squeeze(0).numpy()[-1])
 
 plt.plot(predict_after10min, label="predict")
