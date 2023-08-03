@@ -1,0 +1,46 @@
+시계열 예측 time series forecasting 
+0. 전통모델
+0. SVM
+1. rnn
+2. lstm
+3. gru
+4. transformer
+ode/oce 기반
+GCN 기반
+랜덤포레스트 (결정트리 기반)
+tcn
+
+
+
+인풋: 
+팔당댐 현재수위
+팔당댐 유입량
+팔당댐 저수량
+팔당댐 공용량
+총 방류량
+강화대교 조위
+XX대교 유량
+
+
+
+하이퍼 파라미터 window size, output size
+
+데이터 종류 stationary, non-stationary
+
+
+그 전에 수위예측 문제정의
+
+수위 데이터의 특징
+
+0~4 모델 중 뭐가 제일 잘 맞을까
+
+수위 데이터의 특징과 제일 잘 맞은 모델의 상관관계
+
+상관관계를 바탕으로 한 모델 개선
+
+
+http://www.jungwoo.or.kr/webzine/2022_11/a1.html
+
+트랜스포머 보다 나은 RNN만들기
+
+
