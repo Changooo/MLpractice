@@ -6,7 +6,16 @@ import pandas as pd
 from torch.utils.data import TensorDataset 
 from torch.utils.data import DataLoader 
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
+device = torch.device("cuda")
+
+
+# random seed fix
+torch.manual_seed(0)
+torch.cuda.manual_seed(0)
+torch.cuda.manual_seed_all(0)
+np.random.seed(0)
 
 
 def load_dataset():
@@ -60,7 +69,6 @@ def load_dataset():
     
     return dataset
 
-
 def preprocessing(data, window_size, output_size):
     x, y = data
     x_data = []
@@ -82,13 +90,10 @@ def split_train_and_test(dataset, percentage):
     y_test = y[split:]
     return (x_train, y_train), (x_test, y_test)
 
-
-
-
 class simpleMLP:
     def __init__(self, input_size, output_size):
-        self.W = torch.FloatTensor(np.random.rand(input_size, output_size))
-        self.b = torch.FloatTensor(np.random.rand(output_size))
+        self.W = torch.FloatTensor(np.random.rand(input_size, output_size)).to(device)
+        self.b = torch.FloatTensor(np.random.rand(output_size)).to(device)
         self.W.requires_grad_(True)
         self.b.requires_grad_(True)
         
@@ -108,8 +113,8 @@ class simpleRNN:
         self.tanh = nn.Tanh()
         for l in range(self.layer):
             cell = simpleMLP(input_size if l==0 else hidden_size[l-1], hidden_size[l])
-            Wh = torch.FloatTensor(np.random.rand(hidden_size[l], hidden_size[l]))
-            bh = torch.FloatTensor(np.random.rand(hidden_size[l]))
+            Wh = torch.FloatTensor(np.random.rand(hidden_size[l], hidden_size[l])).to(device)
+            bh = torch.FloatTensor(np.random.rand(hidden_size[l])).to(device)
             self.params.append([Wh, bh])
             self.cell.append(cell)
             self.status.append(None)            
@@ -145,7 +150,16 @@ class myRNN:
     
     def parameters(self):
         return [*self.rnn.parameters(), *self.mlp.parameters()]
-
+    
+    def cost_function(self):
+        def cost_function (prediction, Y):
+            err = prediction-Y
+            cost = err**2
+            cost[err<0] *= 3
+            cost[err>0] /= 3
+            cost = cost.mean()
+            return cost
+        return cost_function
 
 # features
 input_size = 6
@@ -154,14 +168,11 @@ output_size = 1
 # hyper parameters
 window_size = 10
 output_length = 1
-hidden_size = [3,3]
-learning_rate = 0.1
+hidden_size = [5,3]
+learning_rate = 0.001
 train_size = 0.9
-batch_size = 60000
-epoch = 2
-
-
-
+batch_size = 300
+epoch = 120
 
 ###################################################################################
 ################################START##############################################
@@ -180,24 +191,23 @@ dataset = dataset.fillna(method='ffill')
 # drop datetime
 dataset = dataset.drop(columns=['datetime'])
 
+# scaling data
+minMaxScaler = MinMaxScaler(feature_range=(0,10))
+dataset = minMaxScaler.fit_transform(dataset)
+dataset = pd.DataFrame(dataset)
+
 # split x & y
 x_dataset = dataset
-y_dataset = dataset[['jamsoo_level']].copy()
+y_dataset = dataset[[5]].copy()
 
 # split train & test 
 train, test = split_train_and_test((x_dataset, y_dataset), train_size)
 x_train, y_train = train
 x_test, y_test = test
 
-# scaling(standard scale)
-std = StandardScaler()
-std.fit(x_train)
-x_train = std.transform(x_train)
-x_test  = std.transform(x_test)             #df -> numpy 
-
 # split window & convert to tensor
-train_data = preprocessing((x_train.tolist(), y_train.values.tolist()), window_size, output_length)   
-test_data = preprocessing((x_test.tolist(), y_test.values.tolist()), window_size, output_length)   
+train_data = preprocessing((x_train.to_numpy().tolist(), y_train.to_numpy().tolist()), window_size, output_length)   
+test_data = preprocessing((x_test.to_numpy().tolist(), y_test.to_numpy().tolist()), window_size, output_length)   
 
 # create minibatch
 x_train, y_train = train_data
@@ -207,42 +217,76 @@ dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 # model set
 myrnn = myRNN(input_size, hidden_size, output_size, output_length)
 optimizer = optim.Adam(myrnn.parameters(), learning_rate)
-cost_function = nn.MSELoss()
+MSE_function = nn.MSELoss()
+cost_function = myrnn.cost_function()
 
-    
+
 # train data
 for epoch in range(epoch):
     for index, minibatch in enumerate(dataloader):
-        #droplast
+        # droplast
         if index == len(dataloader)-1:
             break
-        
-        X, Y = minibatch
-        prediction = myrnn.forward(X)
-        cost = cost_function(prediction, Y)
+        X = minibatch[0].to(device)
+        Y = minibatch[1].to(device)
+        prediction = myrnn.forward(X).to(device)
+        cost = MSE_function(prediction, Y)
     
         optimizer.zero_grad()
         cost.backward()
         optimizer.step()
+    if epoch%10 == 0:
         print(cost)
+        pass
 
 # test data
 x_test, y_test = test_data
 dataset = TensorDataset(x_test, y_test)
 dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
-predict_after10min = []
-real_after10min = []
-for index, minibatch in enumerate(dataloader):
-    X, Y = minibatch
-    prediction = myrnn.forward(X)
-    predict_after10min.append(prediction.squeeze(-1).squeeze(0).detach().numpy()[-1])
-    # if index % 100 == 0:
-    #     print(X)
-    #     print(prediction)
-    real_after10min.append(Y.squeeze(-1).squeeze(0).numpy()[-1])
+predict = []
+real = []
 
-plt.plot(predict_after10min, label="predict")
-plt.plot(real_after10min, label="real", linewidth=0.1)
+costsum = 0
+MSEsum = 0 
+for index, minibatch in enumerate(dataloader):
+    X = minibatch[0].to(device)
+    Y = minibatch[1]
+    prediction = myrnn.forward(X).cpu()
+    costsum += cost_function(prediction, Y).detach().numpy()
+    MSEsum += MSE_function(prediction, Y).detach().numpy()
+    
+    predict.append(prediction.squeeze(-1).squeeze(0).detach().numpy()[-1])
+    real.append(Y.squeeze(-1).squeeze(0).numpy()[-1])
+    
+costsum /= len(dataloader)
+MSEsum /= len(dataloader)
+print(costsum)
+print(MSEsum)
+
+frame = np.zeros((len(real), 5))
+predict = np.array(predict).reshape(-1, 1)
+real    = np.array(real   ).reshape(-1, 1)
+predict = np.concatenate((frame, predict), axis=1)
+real    = np.concatenate((frame, real   ), axis=1)
+
+predict = minMaxScaler.inverse_transform(predict)[:, 5:6]
+real    = minMaxScaler.inverse_transform(real   )[:, 5:6]
+predict = np.round(predict, 3)
+real    = np.round(real   , 3)
+
+
+print(cost_function(torch.FloatTensor(predict), torch.FloatTensor(real)))
+print(MSE_function(torch.FloatTensor(predict), torch.FloatTensor(real)))
+
+plt.plot(predict, label="predict", color="orange")
+plt.plot(real, label="real", linewidth=0.1, color="black")
 plt.legend()
 plt.show()
+
+
+
+# MSE before inverse: 0.032602945328471106
+# # myCost before inverse: 0.06843180147934239
+# MSE after inverse: 0.0262
+# # myCost after inverse: 0.0551

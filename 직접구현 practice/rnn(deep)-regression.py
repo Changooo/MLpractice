@@ -225,6 +225,7 @@ for epoch in range(epoch):
         cost.backward()
         optimizer.step()
         print(cost)
+        
 
 # test data
 x_test, y_test = test_data
