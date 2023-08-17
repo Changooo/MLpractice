@@ -155,8 +155,8 @@ class myRNN:
         def cost_function (prediction, Y):
             err = prediction-Y
             cost = err**2
-            cost[err<0] *= 3
-            cost[err>0] /= 3
+            cost[err<0] *= 1.96
+            cost[err>0] /= 1.96
             cost = cost.mean()
             return cost
         return cost_function
@@ -172,7 +172,7 @@ hidden_size = [5,3]
 learning_rate = 0.001
 train_size = 0.9
 batch_size = 300
-epoch = 120
+epoch = 10
 
 ###################################################################################
 ################################START##############################################
@@ -247,23 +247,14 @@ dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 predict = []
 real = []
 
-costsum = 0
-MSEsum = 0 
 for index, minibatch in enumerate(dataloader):
     X = minibatch[0].to(device)
     Y = minibatch[1]
     prediction = myrnn.forward(X).cpu()
-    costsum += cost_function(prediction, Y).detach().numpy()
-    MSEsum += MSE_function(prediction, Y).detach().numpy()
     
     predict.append(prediction.squeeze(-1).squeeze(0).detach().numpy()[-1])
     real.append(Y.squeeze(-1).squeeze(0).numpy()[-1])
     
-costsum /= len(dataloader)
-MSEsum /= len(dataloader)
-print(MSEsum)
-print(costsum)
-
 frame = np.zeros((len(real), 5))
 predict = np.array(predict).reshape(-1, 1)
 real    = np.array(real   ).reshape(-1, 1)
