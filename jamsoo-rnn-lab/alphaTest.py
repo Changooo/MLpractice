@@ -11,20 +11,6 @@ from sklearn.preprocessing import StandardScaler
 device = torch.device("cuda")
 
 
-# features
-input_size = 6
-output_size = 1
-
-# hyper parameters
-window_size = 10
-output_length = 1
-hidden_size = [5, 3]
-learning_rate = 0.001
-train_size = 0.9
-batch_size = 300
-epoch = 10
-
-
 class util:
     def fix_random_seed():
         torch.manual_seed(0)
@@ -280,7 +266,7 @@ hidden_size = [5, 3]
 learning_rate = 0.001
 train_size = 0.9
 batch_size = 300
-epoch = 10
+epoch = 120
 
 
 ###################################################################################
